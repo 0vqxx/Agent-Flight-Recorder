@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-flight-recorder"
+version = "0.1.0"
+description = "High-Performance Zero-Overhead Tracing & Observability SDK for AI Agents"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Flight Recorder Team", email = "engineering@flightrecorder.ai" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Logging",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
