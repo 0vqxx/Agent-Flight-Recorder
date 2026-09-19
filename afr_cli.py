@@ -13,12 +13,14 @@ import re
 import select
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import termios
 import time
 import tty
 import uuid
+import webbrowser
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -38,6 +40,78 @@ C_TOOL = "\033[38;5;215m"        # Warm Amber (Tool)
 C_SUCCESS = "\033[38;5;78m"      # Mint Emerald
 C_ERROR = "\033[38;5;203m"       # Soft Coral / Red
 C_BG_DARK = "\033[48;5;236m"
+
+PACKAGE_ROOT = os.path.dirname(os.path.realpath(__file__))
+FRONTEND_DIR = os.path.join(PACKAGE_ROOT, "frontend")
+UI_PORT = 3043
+UI_URL = f"http://localhost:{UI_PORT}"
+
+def is_ui_running(port: int = UI_PORT) -> bool:
+    """Checks whether the web workbench server is active on port."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.3)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+    except Exception:
+        return False
+
+def ensure_ui_running(open_browser: bool = False, verbose: bool = False) -> bool:
+    """Ensures Next.js Web Workbench is running in background. Spawns daemon if needed."""
+    if is_ui_running(UI_PORT):
+        if verbose:
+            print(f"\n{C_SUCCESS}✓ Web UI is active at {BOLD}{UI_URL}{RESET}\n")
+        if open_browser:
+            webbrowser.open(UI_URL)
+        return True
+
+    if not os.path.exists(FRONTEND_DIR):
+        if verbose:
+            print(f"\n{C_ERROR}Frontend directory not found at {FRONTEND_DIR}{RESET}\n")
+        return False
+
+    if verbose:
+        print(f"\n{C_PRIMARY}● Starting Agent Flight Recorder Web Workbench on {UI_URL}...{RESET}")
+
+    try:
+        npm_bin = shutil.which("npm") or "/Users/AndresQO/.local/bin/npm" or "/usr/local/bin/npm" or "npm"
+
+        log_dir = os.path.join(os.path.expanduser("~"), ".afr")
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, "web_server.log")
+
+        with open(log_file, "a") as f_out:
+            subprocess.Popen(
+                [npm_bin, "run", "dev"],
+                cwd=FRONTEND_DIR,
+                stdout=f_out,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+
+        # Poll until ready (up to 4 seconds)
+        for _ in range(40):
+            time.sleep(0.1)
+            if is_ui_running(UI_PORT):
+                if verbose:
+                    print(f"{C_SUCCESS}✓ Web UI is live at {BOLD}{UI_URL}{RESET}\n")
+                if open_browser:
+                    webbrowser.open(UI_URL)
+                return True
+
+        if verbose:
+            print(f"{C_SUCCESS}✓ Web UI server booting in background at {UI_URL}{RESET}\n")
+        if open_browser:
+            webbrowser.open(UI_URL)
+        return True
+    except Exception as e:
+        if verbose:
+            print(f"\n{C_ERROR}Failed to launch Web UI: {e}{RESET}\n")
+        return False
+
+def cmd_ui(args):
+    """Starts and opens the Web Workbench in the default browser."""
+    print(f"{BOLD}{C_PRIMARY}🛩️  Agent Flight Recorder Web Workbench{RESET}")
+    ensure_ui_running(open_browser=True, verbose=True)
 
 def get_storage_path() -> str:
     """Resolves the nearest .afr telemetry store or defaults to current workspace."""
@@ -400,12 +474,15 @@ class InteractiveAgentREPL:
         self.session_id = f"sess_{int(time.time())}"
         self.session_tokens = 0
         self.session_cost = 0.0
+        # Automatically ensure web UI server daemon is running in background
+        ensure_ui_running(open_browser=False, verbose=False)
 
     def print_banner(self):
+        ui_status = f"{C_SUCCESS}Live{RESET}" if is_ui_running() else f"{C_MUTED}Active{RESET}"
         print(f"\n{BOLD}{C_PRIMARY}╭── Agent Flight Recorder ───────────────────────────────────────────────────╮{RESET}")
-        print(f"{BOLD}{C_PRIMARY}│{RESET}  🛩️  Workspace: {BOLD}{self.workspace}{RESET}  •  Telemetry: {C_SUCCESS}Active{RESET}  •  Web UI: {C_PRIMARY}http://localhost:3043{RESET} {BOLD}{C_PRIMARY}│{RESET}")
+        print(f"{BOLD}{C_PRIMARY}│{RESET}  🛩️  Workspace: {BOLD}{self.workspace}{RESET}  •  Telemetry: {C_SUCCESS}Active{RESET}  •  Web UI: {C_PRIMARY}{UI_URL}{RESET} ({ui_status}) {BOLD}{C_PRIMARY}│{RESET}")
         print(f"{BOLD}{C_PRIMARY}╰────────────────────────────────────────────────────────────────────────────╯{RESET}")
-        print(f"{C_MUTED}Type {BOLD}help{RESET}{C_MUTED} for commands ({BOLD}list{RESET}{C_MUTED}, {BOLD}view <id>{RESET}{C_MUTED}, {BOLD}stats{RESET}{C_MUTED}, {BOLD}run <cmd>{RESET}{C_MUTED}) or run a shell command.{RESET}\n")
+        print(f"{C_MUTED}Type {BOLD}help{RESET}{C_MUTED} for commands ({BOLD}list{RESET}{C_MUTED}, {BOLD}ui{RESET}{C_MUTED}, {BOLD}view <id>{RESET}{C_MUTED}, {BOLD}stats{RESET}{C_MUTED}, {BOLD}run <cmd>{RESET}{C_MUTED}).{RESET}\n")
 
     def execute_tool_bash(self, cmd: str) -> Tuple[str, bool, float]:
         """Runs a real bash tool command and returns (output, is_error, elapsed_ms)."""
@@ -616,6 +693,7 @@ class InteractiveAgentREPL:
             if cmd in ("help", "?"):
                 print(f"\n{BOLD}Available Commands:{RESET}")
                 print(f"  {BOLD}list{RESET} (or {BOLD}traces{RESET}, {BOLD}ls{RESET})         List recorded execution traces")
+                print(f"  {BOLD}ui{RESET} (or {BOLD}web{RESET}, {BOLD}open{RESET})            Launch and open Web Workbench in browser")
                 print(f"  {BOLD}view <id>{RESET} (or {BOLD}tree <id>{RESET})       Render ASCII Gantt waterfall chart")
                 print(f"  {BOLD}inspect <id>{RESET} (or {BOLD}json <id>{RESET})    Inspect raw JSON input/output payloads")
                 print(f"  {BOLD}stats{RESET}                        Show telemetry performance & metrics")
@@ -628,6 +706,9 @@ class InteractiveAgentREPL:
 
             elif cmd in ("traces", "list", "ls"):
                 cmd_list(type('Args', (), {'limit': 20})())
+
+            elif cmd in ("ui", "web", "dashboard", "open"):
+                ensure_ui_running(open_browser=True, verbose=True)
 
             elif cmd in ("view", "tree", "show"):
                 cmd_view(type('Args', (), {'id': arg})())
@@ -686,6 +767,9 @@ def main():
     p_list = subparsers.add_parser("list", aliases=["ls"], help="List recorded execution traces")
     p_list.add_argument("-n", "--limit", type=int, default=25, help="Maximum number of traces to display")
 
+    # afr ui / web / dashboard
+    p_ui = subparsers.add_parser("ui", aliases=["web", "dashboard", "open"], help="Launch and open Web Workbench in browser")
+
     # afr view / tree
     p_view = subparsers.add_parser("view", aliases=["tree", "show"], help="Render execution waterfall tree")
     p_view.add_argument("id", nargs="?", default="", help="Trace ID or prefix")
@@ -712,6 +796,8 @@ def main():
 
     if args.subcommand in ("list", "ls"):
         cmd_list(args)
+    elif args.subcommand in ("ui", "web", "dashboard", "open"):
+        cmd_ui(args)
     elif args.subcommand in ("view", "tree", "show"):
         cmd_view(args)
     elif args.subcommand in ("inspect", "json"):
