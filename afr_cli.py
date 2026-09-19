@@ -39,13 +39,27 @@ C_SUCCESS = "\033[38;5;78m"      # Mint Emerald
 C_ERROR = "\033[38;5;203m"       # Soft Coral / Red
 C_BG_DARK = "\033[48;5;236m"
 
-STORAGE_PATH = os.path.join(os.getcwd(), ".afr", "traces.json")
+def get_storage_path() -> str:
+    """Resolves the nearest .afr telemetry store or defaults to current workspace."""
+    curr = os.path.abspath(os.getcwd())
+    while curr and curr != "/":
+        candidate = os.path.join(curr, ".afr", "traces.json")
+        if os.path.exists(candidate):
+            return candidate
+        if os.path.exists(os.path.join(curr, ".git")):
+            return os.path.join(curr, ".afr", "traces.json")
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
+    return os.path.join(os.getcwd(), ".afr", "traces.json")
 
 def load_traces() -> List[Dict[str, Any]]:
     """Loads all telemetry traces from persistent local store."""
-    if os.path.exists(STORAGE_PATH):
+    storage_path = get_storage_path()
+    if os.path.exists(storage_path):
         try:
-            with open(STORAGE_PATH, "r") as f:
+            with open(storage_path, "r") as f:
                 data = json.load(f)
                 if isinstance(data, list):
                     return data
@@ -55,8 +69,9 @@ def load_traces() -> List[Dict[str, Any]]:
 
 def save_traces(traces: List[Dict[str, Any]]) -> None:
     """Saves telemetry traces to persistent local store."""
-    os.makedirs(os.path.dirname(STORAGE_PATH), exist_ok=True)
-    with open(STORAGE_PATH, "w") as f:
+    storage_path = get_storage_path()
+    os.makedirs(os.path.dirname(storage_path), exist_ok=True)
+    with open(storage_path, "w") as f:
         json.dump(traces, f, indent=2)
 
 def find_trace(identifier: str) -> Optional[Dict[str, Any]]:
